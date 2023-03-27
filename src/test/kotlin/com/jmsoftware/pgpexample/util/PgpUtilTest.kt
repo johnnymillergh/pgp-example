@@ -7,6 +7,8 @@ import com.jmsoftware.pgpexample.util.PgpUtil.Companion.encryptPlaintext
 import com.jmsoftware.pgpexample.util.PgpUtil.Companion.readPublicKey
 import com.jmsoftware.pgpexample.util.PgpUtil.Companion.readSecretKey
 import com.jmsoftware.pgpexample.util.PgpUtil.Companion.signEncryptInOnePass
+import com.jmsoftware.pgpexample.util.PgpUtil.Companion.signMessage
+import com.jmsoftware.pgpexample.util.PgpUtil.Companion.verifySignature
 import org.apache.commons.io.IOUtils
 import org.apache.commons.lang3.SystemUtils
 import org.bouncycastle.openpgp.PGPPublicKey
@@ -163,7 +165,7 @@ class PgpUtilTest {
             }
 
         // 1. Sign and encrypt
-        val plaintextIn = IOUtils.toBufferedInputStream(IOUtils.toInputStream(plaintext, UTF_8))
+        val plaintextIn = IOUtils.toBufferedInputStream(plaintext.byteInputStream())
         val signEncryptedOut = ByteArrayOutputStream()
         assertDoesNotThrow {
             signEncryptInOnePass(
@@ -223,7 +225,7 @@ class PgpUtilTest {
             }
 
         // 1. Sign and encrypt
-        val plaintextIn = IOUtils.toBufferedInputStream(IOUtils.toInputStream(plaintext, UTF_8))
+        val plaintextIn = IOUtils.toBufferedInputStream(plaintext.byteInputStream())
         val signEncryptedOut = ByteArrayOutputStream()
         assertDoesNotThrow {
             signEncryptInOnePass(
@@ -263,5 +265,35 @@ class PgpUtilTest {
         assertFalse(decryptVerifiedText.isBlank())
         assertEquals(plaintext, decryptVerifiedText)
         log.info("Decrypt verified: $decryptVerifiedText")
+    }
+
+    @Test
+    fun signAndVerify() {
+        val plaintext = "Hello world!"
+        val alicePgpSecretKey: PGPSecretKey
+        CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
+            .use {
+                alicePgpSecretKey = assertDoesNotThrow { readSecretKey(it) }
+            }
+        val passcode = "passcode"
+        val signatureBytes = signMessage(plaintext.toByteArray(), alicePgpSecretKey, passcode.toCharArray(), true)
+        assertNotNull(signatureBytes)
+        val signature = String(signatureBytes)
+        assertNotNull(signature)
+        assertFalse(signature.isBlank())
+        assertTrue(signature.startsWith(PGP_MESSAGE_HEADER))
+        assertTrue(signature.endsWith(PGP_MESSAGE_FOOTER))
+        log.info("Signature:\n$signature")
+
+        val alicePgpPublicKey: PGPPublicKey
+            CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_public.asc")!!
+                .use {
+                    alicePgpPublicKey = assertDoesNotThrow { readPublicKey(it) }
+                }
+        val verifiedSignatureBytes = verifySignature(signature.byteInputStream(), alicePgpPublicKey)
+        assertNotNull(verifiedSignatureBytes)
+        val verifiedSignature = String(verifiedSignatureBytes)
+        assertEquals(plaintext, verifiedSignature)
+        log.info("Verified signature:\n$verifiedSignature")
     }
 }
