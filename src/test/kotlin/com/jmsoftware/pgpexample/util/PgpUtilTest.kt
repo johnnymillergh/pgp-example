@@ -2,11 +2,11 @@ package com.jmsoftware.pgpexample.util
 
 import com.google.common.collect.Lists
 import com.jmsoftware.pgpexample.util.PgpUtil.Companion.decryptCipher
+import com.jmsoftware.pgpexample.util.PgpUtil.Companion.decryptVerify
 import com.jmsoftware.pgpexample.util.PgpUtil.Companion.encryptPlaintext
 import com.jmsoftware.pgpexample.util.PgpUtil.Companion.readPublicKey
 import com.jmsoftware.pgpexample.util.PgpUtil.Companion.readSecretKey
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.signMessage
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.verifySignature
+import com.jmsoftware.pgpexample.util.PgpUtil.Companion.signEncryptInOnePass
 import org.apache.commons.io.IOUtils
 import org.apache.commons.lang3.SystemUtils
 import org.bouncycastle.openpgp.PGPPublicKey
@@ -18,10 +18,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.parallel.Execution
 import org.junit.jupiter.api.parallel.ExecutionMode
-import java.io.ByteArrayInputStream
-import java.io.File
+import java.io.*
 import java.io.File.separator
-import java.io.FileOutputStream
+import java.nio.charset.StandardCharsets.UTF_8
 import java.util.*
 import kotlin.concurrent.timerTask
 
@@ -64,9 +63,32 @@ class PgpUtilTest {
         log.info("Finished deconstructing for ${this.javaClass.simpleName}")
     }
 
+    // @Test
+    @Suppress("unused")
+    fun performanceTest_infinitiveLoop() {
+        var loopCount = 0L
+        var loop = true
+        val timer = Timer("Stop Timer")
+        timer.schedule(
+            timerTask {
+                loop = false
+                log.warn("Stopping the loop")
+            },
+            2 * 60 * 1000L
+        )
+        while (loop) {
+            log.info("Looping #${loopCount + 1}")
+            assertDoesNotThrow {
+                aliceSendMessageToBob_signEncrypt_decryptVerify_whenSecretAndPublicKeysAreNotAPair_armor()
+            }
+            loopCount++
+        }
+        @Suppress("KotlinConstantConditions")
+        log.info("Done looping for ${loopCount + 1} times")
+    }
 
     @Test
-    fun encrypt_decryptSignature_whenSecretAndPublicKeysAreAPair_notArmor() {
+    fun encrypt_decrypt_whenSecretAndPublicKeysAreAPair_notArmor() {
         val plaintext = "Hello world!"
         assertNotNull(plaintext)
         assertFalse(plaintext.isBlank())
@@ -124,231 +146,122 @@ class PgpUtilTest {
     }
 
     @Test
-    fun decrypt_when_then() {
-        val ciphertext =
-            """
-            -----BEGIN PGP MESSAGE-----
-            Version: BCPG v1.72.2
-
-            hQGMA81hBm06mqOBAQwAtjJUTOIj1E/0sMRUxWLbfRZmUCyZd+EIIQ8hPC1GMgo3
-            ZYIJAIMx9cRoXSKyeh/g7jVoa3ajf9YY1exQB07H8rB8lWSL/aBFr/dqJD2zblpv
-            asRVCHoqwtu3J9ycj/mBRGqY2PJ44WMnOFrLuPHNCneq+rFczC/RZH8yPcGecqnP
-            JNywuu8Qh9rKeyaxtrjOvjv9Uzffz0/qMAVUiG9ZZ+TtVa9yLwG59w/+D6tvmRoQ
-            Fzqa4f0w20sOBa/+l5uoVE+LN+DGDpkK0DneEQRNU7ZLc5CSKLWBquB3wYCrbTD5
-            sxIIW/zlTi1196puAjE23fsfUOoNdqsdxYszaxgVn0tgeneeNU5VO8eHj6ncKT5B
-            MxBKQpsrbjuyNQfngRg1XnKnynJyeJoaLfgyNkNh7MlsuA5ftKXI8wnRnfhcSTBG
-            VriYQjUUj/c6bj0751WiMk2BMmRsGXez8u6XU0KL5lCVmIh4VjE+Fs6UpDgZmRXr
-            iiHhL4Ob6QXO11xt3cBF0sIKAX3JKf/DQPl+MbjNgfbMzK5Gky/1waz3jsyh0ZJI
-            NOZKNJ0tYDSKdIvQO+O1NAHbJ67w+sVRIGa9ly75nALL6NmZwymMaKY2KiYXsc+1
-            ANRmk2iWQR2sK99AL2S3wxPWZkZyhK/cyZLBPs5YQtxBlbCsHDoMjU2F1IT/M4fb
-            0MhxitkHxeWEvfaVBPLvMNnJaruGpNFAqKGn3l4ZBdHTiNQt9n5NB0y1nZGsYtp/
-            xj7YRQsyscTkMS6MVGm/Dc9P0Tbr+TbwMXVwn4dyfBBI8dx/MuxPpns4LeknyOU5
-            7CDxvw1uzOJUQ/1MFUfenRkRvBArOmyi7GDqdhlLu1dmLEaElGmLFqngLPTdC2N8
-            bHcadWx5zdoUEEjM3JRwqj9y/JGs31IuwGbT9YAxl8YALFP1emkyjMFjE52LM430
-            owu94vcUIwGp49N4kX02xefTsGOLf+75fMGdVMXr6DepLQ4GoRP6hsT5fzCeqjOi
-            Xg/WPNszEJiFxiHsZOQcHk4gCg5DrS3qGPxcuCXAGe1aaYYTH3j3fatkz1f3foy9
-            zqQzbdD2FsNFz4FbWc3BlZsOos/pYjbAyEtFP9WWkwMWuURCKZsuUWllrpYkWPca
-            BYhjQz0m0e7o/RzZToCdEgMmUmTXANTcvb456NnSKVyFzpbD8oNNfmLDyBukQbyU
-            B6RMLZ36j40VupuKQEElsxJptAq63a4LS0f3RYoBITzm3nmXb2hBVV0sGlI31RcX
-            OmbgYacWFmFaEmDnu9jYt8qnLKePhSe57xC2f8JgTbaDr3J57TlHSICXVpkjZi7+
-            S1VuNCyZH0Gw8xY0dHmJoWfILZVGSEA3rTJS45Ukk5w338J2+sRk1MShh6hGz/qM
-            fDu1cVn4vjIpk6CLtqjceEgNGNe1Z9i7gbKdkgZ4nFSz78Nh004GFoDYd8Qwi5Vh
-            kirZzRQxC+uHmiFu
-            =C8cs
-            -----END PGP MESSAGE-----
-            """.trimIndent()
-        val aliceSecretKeyIn2 =
-            CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
-        val decryptedMessageBytes = assertDoesNotThrow {
-            decryptCipher(
-                ByteArrayInputStream(ciphertext.toByteArray()),
-                aliceSecretKeyIn2,
-                "".toCharArray()
-            )
-        }
-        assertNotNull(decryptedMessageBytes)
-    }
-
-    //    @Test
-    fun performanceTest_infinitiveLoop() {
-        var loopCount = 0L
-        var loop = true
-        val timer = Timer("Stop Timer")
-        timer.schedule(
-            timerTask {
-                loop = false
-                log.warn("Stopping the loop")
-            },
-            2 * 60 * 1000L
-        )
-        while (loop) {
-            log.info("Looping #${loopCount + 1}")
-            assertDoesNotThrow {
-                signAndEncrypt_decryptAndVerify_whenSecretAndPublicKeysAreAPair_notArmor()
-            }
-            loopCount++
-        }
-        @Suppress("KotlinConstantConditions")
-        log.info("Done looping for ${loopCount + 1} times")
-    }
-
-    @Test
-    fun signAndEncrypt_decryptAndVerify_whenSecretAndPublicKeysAreAPair_notArmor() {
+    fun aliceEncryptsForHerself_signEncrypt_decryptVerify_whenSecretAndPublicKeysAreAPair_armor() {
         val plaintext = "Hello world!"
         assertNotNull(plaintext)
         assertFalse(plaintext.isBlank())
         log.info("The input plaintext is: $plaintext")
-        val alicePgpSecretKey: PGPSecretKey
-        CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
-            .use {
-                alicePgpSecretKey = assertDoesNotThrow { readSecretKey(it) }
-            }
-        log.info(
-            """
-            Done reading Alice PGP secret key: $alicePgpSecretKey
-            Is Signing Key: ${alicePgpSecretKey.isSigningKey}
-            Key Owner: ${Lists.newArrayList(alicePgpSecretKey.userIDs)}
-            Key Encryption Algorithm: ${alicePgpSecretKey.keyEncryptionAlgorithm}
-            """.trimIndent()
-        )
-
-        // 1. Signing
-        val signatureBytes =
-            assertDoesNotThrow { signMessage(plaintext.toByteArray(), alicePgpSecretKey, "".toCharArray(), false) }
-        val signature = String(signatureBytes)
-        assertNotNull(signatureBytes)
-        log.info("Signature:\n$signature")
-        assertNotNull(signature)
-        assertFalse(signature.startsWith(PGP_MESSAGE_HEADER))
-        assertFalse(signature.endsWith(PGP_MESSAGE_FOOTER))
-
-        // 2. Encrypting signature
         val alicePgpPublicKey: PGPPublicKey
         CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_public.asc")!!
             .use {
                 alicePgpPublicKey = assertDoesNotThrow { readPublicKey(it) }
             }
-        val ciphertextBytes = assertDoesNotThrow {
-            encryptPlaintext(signatureBytes, alicePgpPublicKey, armor = false, withIntegrityCheck = true)
-        }
-        assertNotNull(ciphertextBytes)
-        val ciphertext = String(ciphertextBytes)
-        assertNotNull(ciphertext)
-        assertFalse(ciphertext.isBlank())
-        assertFalse(ciphertext.startsWith(PGP_MESSAGE_HEADER))
-        assertFalse(ciphertext.endsWith(PGP_MESSAGE_FOOTER))
-        log.info("Ciphertext:\n$ciphertext")
-        output(
-            "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}.txt",
-            ciphertextBytes
-        )
-
-        // 3. Decrypting
-        val decryptedMessageBytes: ByteArray
-        val aliceSecretKeyIn2 =
-            CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
-        decryptedMessageBytes = assertDoesNotThrow {
-            decryptCipher(
-                ByteArrayInputStream(ciphertextBytes),
-                aliceSecretKeyIn2,
-                "".toCharArray()
-            )
-        }
-        assertNotNull(decryptedMessageBytes)
-        val decryptedMessage = String(decryptedMessageBytes)
-        assertNotNull(decryptedMessage)
-        assertFalse(decryptedMessage.startsWith(PGP_MESSAGE_HEADER))
-        assertFalse(decryptedMessage.endsWith(PGP_MESSAGE_FOOTER))
-
-        // 4. Verifying signature
-        val verifiedSignatureBytes = assertDoesNotThrow {
-            verifySignature(ByteArrayInputStream(decryptedMessageBytes), alicePgpPublicKey)
-        }
-        assertNotNull(verifiedSignatureBytes)
-        val verifiedSignature = String(verifiedSignatureBytes)
-        log.info("Verified signature: $verifiedSignature")
-        assertNotNull(verifiedSignature)
-        assertFalse(verifiedSignature.isBlank())
-        assertEquals(plaintext, verifiedSignature)
-    }
-
-    @Test
-    fun signAndEncrypt_decryptAndVerify_whenSecretAndPublicKeysAreAPair_Armor() {
-        val plaintext = "Hello world!"
-        assertNotNull(plaintext)
-        assertFalse(plaintext.isBlank())
-        log.info("The input plaintext is: $plaintext")
         val alicePgpSecretKey: PGPSecretKey
         CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
             .use {
                 alicePgpSecretKey = assertDoesNotThrow { readSecretKey(it) }
             }
-        log.info(
-            """
-            Done reading Alice PGP secret key: $alicePgpSecretKey
-            Is Signing Key: ${alicePgpSecretKey.isSigningKey}
-            Key Owner: ${Lists.newArrayList(alicePgpSecretKey.userIDs)}
-            Key Encryption Algorithm: ${alicePgpSecretKey.keyEncryptionAlgorithm}
-            """.trimIndent()
-        )
 
-        // 1. Signing
-        val signatureBytes =
-            assertDoesNotThrow { signMessage(plaintext.toByteArray(), alicePgpSecretKey, "".toCharArray(), true) }
-        val signature = String(signatureBytes)
-        assertNotNull(signatureBytes)
-        log.info("Signature:\n$signature")
-        assertNotNull(signature)
-        assertTrue(signature.startsWith(PGP_MESSAGE_HEADER))
-        assertTrue(signature.endsWith(PGP_MESSAGE_FOOTER))
-
-        // 2. Encrypting signature
-        val alicePgpPublicKey: PGPPublicKey
-        CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_public.asc")!!
-            .use {
-                alicePgpPublicKey = assertDoesNotThrow { readPublicKey(it) }
-            }
-        val ciphertextBytes = assertDoesNotThrow {
-            encryptPlaintext(signatureBytes, alicePgpPublicKey, armor = true, withIntegrityCheck = true)
-        }
-        assertNotNull(ciphertextBytes)
-        val ciphertext = String(ciphertextBytes)
-        assertNotNull(ciphertext)
-        assertFalse(ciphertext.isBlank())
-        assertTrue(ciphertext.startsWith(PGP_MESSAGE_HEADER))
-        assertTrue(ciphertext.endsWith(PGP_MESSAGE_FOOTER))
-        log.info("Ciphertext:\n$ciphertext")
-        output(
-            "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}.txt",
-            ciphertextBytes
-        )
-
-        // 3. Decrypting
-        val decryptedMessageBytes: ByteArray
-        val aliceSecretKeyIn2 =
-            CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
-        decryptedMessageBytes = assertDoesNotThrow {
-            decryptCipher(
-                ByteArrayInputStream(ciphertextBytes),
-                aliceSecretKeyIn2,
-                "".toCharArray()
+        // 1. Sign and encrypt
+        val plaintextIn = IOUtils.toBufferedInputStream(IOUtils.toInputStream(plaintext, UTF_8))
+        val signEncryptedOut = ByteArrayOutputStream()
+        assertDoesNotThrow {
+            signEncryptInOnePass(
+                plaintextIn,
+                signEncryptedOut,
+                "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-enc.txt",
+                "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-plaintext.txt",
+                "",
+                alicePgpSecretKey,
+                alicePgpPublicKey,
+                armor = true,
+                withIntegrityCheck = true
             )
         }
-        assertNotNull(decryptedMessageBytes)
-        val decryptedMessage = String(decryptedMessageBytes)
-        assertNotNull(decryptedMessage)
-        assertTrue(decryptedMessage.startsWith(PGP_MESSAGE_HEADER))
-        assertTrue(decryptedMessage.endsWith(PGP_MESSAGE_FOOTER))
+        val signEncryptedText = signEncryptedOut.toString()
+        assertNotNull(signEncryptedText)
+        assertFalse(signEncryptedText.isBlank())
+        assertTrue(signEncryptedText.startsWith(PGP_MESSAGE_HEADER))
+        assertTrue(signEncryptedText.endsWith(PGP_MESSAGE_FOOTER))
+        log.info("Ciphertext:\n$signEncryptedText")
 
-        // 4. Verifying signature
-        val verifiedSignatureBytes = assertDoesNotThrow {
-            verifySignature(ByteArrayInputStream(decryptedMessageBytes), alicePgpPublicKey)
+        // 2. Decrypt and verify
+        val ciphertextIn = IOUtils.toBufferedInputStream(IOUtils.toInputStream(signEncryptedText, UTF_8))
+        val alicePgpPublicKeyIn =
+            CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_public.asc")!!
+        val alicePgpSecretKeyIn =
+            CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
+        val decryptVerifiedOut = ByteArrayOutputStream()
+        assertDoesNotThrow {
+            decryptVerify(ciphertextIn, alicePgpPublicKeyIn, alicePgpSecretKeyIn, "", decryptVerifiedOut)
+        }.also {
+            alicePgpPublicKeyIn.close()
+            alicePgpSecretKeyIn.close()
         }
-        assertNotNull(verifiedSignatureBytes)
-        val verifiedSignature = String(verifiedSignatureBytes)
-        log.info("Verified signature: $verifiedSignature")
-        assertNotNull(verifiedSignature)
-        assertFalse(verifiedSignature.isBlank())
-        assertEquals(plaintext, verifiedSignature)
+        val decryptVerifiedText = decryptVerifiedOut.toString()
+        assertNotNull(decryptVerifiedText)
+        assertFalse(decryptVerifiedText.isBlank())
+        assertEquals(plaintext, decryptVerifiedText)
+        log.info("Decrypt verified: $decryptVerifiedText")
+    }
+
+    @Test
+    fun aliceSendMessageToBob_signEncrypt_decryptVerify_whenSecretAndPublicKeysAreNotAPair_armor() {
+        val plaintext = "Hello world!"
+        assertNotNull(plaintext)
+        assertFalse(plaintext.isBlank())
+        log.info("The input plaintext is: $plaintext")
+        val bobPgpPublicKey: PGPPublicKey
+        CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Bob_0xAF34CAD3_public.asc")!!
+            .use {
+                bobPgpPublicKey = assertDoesNotThrow { readPublicKey(it) }
+            }
+        val alicePgpSecretKey: PGPSecretKey
+        CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
+            .use {
+                alicePgpSecretKey = assertDoesNotThrow { readSecretKey(it) }
+            }
+
+        // 1. Sign and encrypt
+        val plaintextIn = IOUtils.toBufferedInputStream(IOUtils.toInputStream(plaintext, UTF_8))
+        val signEncryptedOut = ByteArrayOutputStream()
+        assertDoesNotThrow {
+            signEncryptInOnePass(
+                plaintextIn,
+                signEncryptedOut,
+                "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-enc.txt",
+                "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-plaintext.txt",
+                "",
+                alicePgpSecretKey,
+                bobPgpPublicKey,
+                armor = true,
+                withIntegrityCheck = true
+            )
+        }
+        val signEncryptedText = signEncryptedOut.toString()
+        assertNotNull(signEncryptedText)
+        assertFalse(signEncryptedText.isBlank())
+        assertTrue(signEncryptedText.startsWith(PGP_MESSAGE_HEADER))
+        assertTrue(signEncryptedText.endsWith(PGP_MESSAGE_FOOTER))
+        log.info("Ciphertext:\n$signEncryptedText")
+
+        // 2. Decrypt and verify
+        val ciphertextIn = IOUtils.toBufferedInputStream(IOUtils.toInputStream(signEncryptedText, UTF_8))
+        val alicePgpPublicKeyIn =
+            CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_public.asc")!!
+        val bobPgpSecretKeyIn =
+            CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Bob_0xAF34CAD3_SECRET.asc")!!
+        val decryptVerifiedOut = ByteArrayOutputStream()
+        assertDoesNotThrow {
+            decryptVerify(ciphertextIn, alicePgpPublicKeyIn, bobPgpSecretKeyIn, "", decryptVerifiedOut)
+        }.also {
+            alicePgpPublicKeyIn.close()
+            bobPgpSecretKeyIn.close()
+        }
+        val decryptVerifiedText = decryptVerifiedOut.toString()
+        assertNotNull(decryptVerifiedText)
+        assertFalse(decryptVerifiedText.isBlank())
+        assertEquals(plaintext, decryptVerifiedText)
+        log.info("Decrypt verified: $decryptVerifiedText")
     }
 }

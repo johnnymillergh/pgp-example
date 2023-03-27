@@ -11,6 +11,7 @@ import org.bouncycastle.openpgp.operator.bc.BcKeyFingerprintCalculator
 import org.bouncycastle.openpgp.operator.jcajce.*
 import org.bouncycastle.util.io.Streams
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.SecureRandom
@@ -30,6 +31,13 @@ import java.util.*
 class PgpUtil {
     companion object {
         private val log = logger()
+
+        /**
+         * The constant BUFFER_SIZE.
+         *
+         * should always be the power of 2 (one shifted bitwise 16 places)
+         */
+        private const val BUFFER_SIZE = 1 shl 16
 
         init {
             // add provider only if it's not in the JVM
@@ -346,6 +354,232 @@ class PgpUtil {
             }
             log.error("Signature verification failed.")
             throw PGPException("Signature verification failed")
+        }
+
+        /**
+         * This is the primary function that will create encrypt a file and sign it
+         * with a one-pass signature. This leans on C# example by John Opincar
+         *
+         * @param contentStream       the content stream
+         * @param signEncryptedOut    The stream for the encrypted target file
+         * @param targetFileName      file name on drive systems that will contain encrypted content
+         * @param embeddedFileName    the original file name before encryption
+         * @param secretKeyPassphrase The private key password for the key retrieved from collection used for signing
+         * @param secretKey           the secret key
+         * @param publicKey           the public key
+         * @param armor               the armor
+         * @param withIntegrityCheck  the with integrity check
+         * @author Bilal Soylu
+         * @see
+         * <a href='http://boncode.blogspot.com/2012/01/java-implementing-pgp-single-pass-sign.html'>Java: Implementing PGP Single Pass Sign and Encrypt using League of Bouncy Castle library</a>
+         * @see
+         * <a href='https://docs.oracle.com/cd/E55956_01/doc.11123/user_guide/content/encryption_pgp_enc.html#:~:text=Encrypt%20and%20Sign%20in%20One%20Pass'>Encrypt and Sign in One Pass</a>
+         */
+        fun signEncryptInOnePass(
+            contentStream: InputStream,
+            signEncryptedOut: OutputStream,
+            targetFileName: String,
+            embeddedFileName: String,
+            secretKeyPassphrase: String,
+            secretKey: PGPSecretKey,
+            publicKey: PGPPublicKey,
+            armor: Boolean,
+            withIntegrityCheck: Boolean
+        ) {
+            // need to convert the password to a character array
+            var out = signEncryptedOut
+            val password = secretKeyPassphrase.toCharArray()
+
+            // armor stream if set
+            if (armor) {
+                out = ArmoredOutputStream(out)
+            }
+
+            // Init encrypted data generator
+            val encryptedDataGenerator = PGPEncryptedDataGenerator(
+                JcePGPDataEncryptorBuilder(publicKey.algorithm)
+                    .setWithIntegrityPacket(withIntegrityCheck)
+                    .setSecureRandom(SecureRandom())
+                    .setProvider("BC")
+            )
+            encryptedDataGenerator.addMethod(JcePublicKeyKeyEncryptionMethodGenerator(publicKey).setProvider("BC"))
+            val encryptedOut = encryptedDataGenerator.open(out, ByteArray(BUFFER_SIZE))
+
+            // start compression
+            val compressedDataGenerator = PGPCompressedDataGenerator(CompressionAlgorithmTags.ZIP)
+            val compressedOut = compressedDataGenerator.open(encryptedOut)
+
+            // start signature
+            val pgpPrivKey = secretKey
+                .extractPrivateKey(JcePBESecretKeyDecryptorBuilder().setProvider("BC").build(password))
+            val signatureGenerator = PGPSignatureGenerator(
+                JcaPGPContentSignerBuilder(secretKey.publicKey.algorithm, HashAlgorithmTags.SHA1).setProvider("BC")
+            )
+            signatureGenerator.init(PGPSignature.BINARY_DOCUMENT, pgpPrivKey)
+            // iterate to find first signature to use
+            val i = secretKey.publicKey.userIDs
+            while (i.hasNext()) {
+                val userId = i.next()
+                val spGen = PGPSignatureSubpacketGenerator()
+                spGen.addSignerUserID(false, userId)
+                signatureGenerator.setHashedSubpackets(spGen.generate())
+                // Just the first one!
+                break
+            }
+            signatureGenerator.generateOnePassVersion(false).encode(compressedOut)
+
+            // Create the Literal Data generator output stream
+            val literalDataGenerator = PGPLiteralDataGenerator()
+            // get file handle
+            val targetFile = File(targetFileName)
+            // create output stream
+            val literalOut = literalDataGenerator.open(
+                compressedOut,
+                PGPLiteralData.BINARY,
+                embeddedFileName,
+                Date(targetFile.lastModified()), ByteArray(BUFFER_SIZE)
+            )
+
+            // read input file and write to target file using a buffer
+            val buf = ByteArray(BUFFER_SIZE)
+            var len: Int
+            while (contentStream.read(buf, 0, buf.size).also { len = it } > 0) {
+                literalOut.write(buf, 0, len)
+                signatureGenerator.update(buf, 0, len)
+            }
+            // close everything down we are done
+            literalOut.close()
+            literalDataGenerator.close()
+            signatureGenerator.generate().encode(compressedOut)
+            compressedOut.close()
+            compressedDataGenerator.close()
+            encryptedOut.close()
+            encryptedDataGenerator.close()
+            if (armor) {
+                out.close()
+            }
+        }
+
+        /**
+         * decryptVerify will decrypt a file that was encrypted using public key,
+         * then signed with a private key as one pass signature based the example of verifyAndDecrypt() by Raul
+         *
+         * @param encryptedIn         the encrypted input stream
+         * @param publicKeyIn         the sign public key input stream
+         * @param secretKeyIn         the secret key input stream
+         * @param secretKeyPassphrase the secret key passphrase
+         * @param decryptVerifiedOut  the target stream
+         * @author Bilal Soylu
+         * @see
+         * <a href='http://boncode.blogspot.com/2012/01/java-implementing-pgp-single-pass-sign.html'>Java: Implementing PGP Single Pass Sign and Encrypt using League of Bouncy Castle library</a>
+         * @see
+         * <a href='https://docs.oracle.com/cd/E55956_01/doc.11123/user_guide/content/encryption_pgp_enc.html#:~:text=Encrypt%20and%20Sign%20in%20One%20Pass'>Encrypt and Sign in One Pass</a>
+         */
+        fun decryptVerify(
+            encryptedIn: InputStream,
+            publicKeyIn: InputStream,
+            secretKeyIn: InputStream,
+            secretKeyPassphrase: String,
+            decryptVerifiedOut: OutputStream
+        ) {
+            // The decrypted results.
+            // StringBuffer result = new StringBuffer();
+            // The private key we use to decrypt contents.
+            var privateKey: PGPPrivateKey? = null
+            // The PGP encrypted object representing the data to decrypt.
+            var encryptedData: PGPPublicKeyEncryptedData? = null
+
+            // Get the list of encrypted objects in the message. The first object in
+            // the message might be a PGP marker, however, so we skip it if necessary.
+            var objectFactory = PGPObjectFactory(
+                PGPUtil.getDecoderStream(encryptedIn),
+                JcaKeyFingerprintCalculator()
+            )
+            val firstObject = objectFactory.nextObject()
+            val dataList =
+                (if (firstObject is PGPEncryptedDataList) firstObject else objectFactory.nextObject()) as PGPEncryptedDataList
+
+            // Find the encrypted object associated with a private key in our key ring.
+            val dataObjectsIterator = dataList.getEncryptedDataObjects()
+            val secretKeyCollection = PGPSecretKeyRingCollection(
+                PGPUtil.getDecoderStream(secretKeyIn), JcaKeyFingerprintCalculator()
+            )
+            while (dataObjectsIterator.hasNext()) {
+                encryptedData = dataObjectsIterator.next() as PGPPublicKeyEncryptedData
+                privateKey = findSecretKey(
+                    secretKeyCollection, encryptedData.keyID,
+                    secretKeyPassphrase.toCharArray()
+                )
+                break
+            }
+            if (privateKey == null) {
+                throw RuntimeException("secret key for message not found")
+            }
+
+            // Get a handle to the decrypted data as an input stream
+            val clearDataInputStream = encryptedData?.getDataStream(
+                JcePublicKeyDataDecryptorFactoryBuilder().setProvider("BC").build(privateKey)
+            )
+            val clearObjectFactory = PGPObjectFactory(clearDataInputStream, JcaKeyFingerprintCalculator())
+            var message = clearObjectFactory.nextObject()
+
+            // Handle case where the data is compressed
+            if (message is PGPCompressedData) {
+                val compressedData = message
+                objectFactory = PGPObjectFactory(compressedData.dataStream, JcaKeyFingerprintCalculator())
+                message = objectFactory.nextObject()
+            }
+            var calculatedSignature: PGPOnePassSignature? = null
+            if (message is PGPOnePassSignatureList) {
+                calculatedSignature = message[0]
+                val publicKeyRingCollection = PGPPublicKeyRingCollection(
+                    PGPUtil.getDecoderStream(publicKeyIn),
+                    JcaKeyFingerprintCalculator()
+                )
+                val signPublicKey = publicKeyRingCollection.getPublicKey(calculatedSignature.keyID)
+                calculatedSignature.init(JcaPGPContentVerifierBuilderProvider().setProvider("BC"), signPublicKey)
+                message = objectFactory.nextObject()
+            }
+
+            // We should only have literal data, from which we can finally read the
+            // decrypted message.
+            if (message is PGPLiteralData) {
+                val literalDataInputStream = message.inputStream
+                var nextByte: Int
+                while (literalDataInputStream.read().also { nextByte = it } >= 0) {
+                    // InputStream.read guarantees to return a byte (range 0-255),
+                    // so we can safely cast to char.
+                    // also update
+                    calculatedSignature?.update(nextByte.toByte())
+                    // calculated one pass signature
+                    // result.append((char) nextByte);
+                    // add to file instead of StringBuffer
+                    decryptVerifiedOut.write(nextByte.toChar().code)
+                }
+                decryptVerifiedOut.close()
+            } else {
+                throw RuntimeException("unexpected message type " + message.javaClass.simpleName)
+            }
+            if (calculatedSignature != null) {
+                val signatureList = objectFactory.nextObject() as PGPSignatureList
+                log.info("signature list ({} sigs) is {}", signatureList.size(), signatureList)
+                val messageSignature = signatureList.get(0)
+                if (!calculatedSignature.verify(messageSignature)) {
+                    throw RuntimeException("signature verification failed")
+                }
+            }
+            if (encryptedData!!.isIntegrityProtected) {
+                if (encryptedData.verify()) {
+                    log.info("message integrity protection verification succeeded")
+                } else {
+                    throw RuntimeException("message failed integrity check")
+                }
+            } else {
+                log.warn("message not integrity protected")
+            }
+
+            //close streams
+            clearDataInputStream?.close()
         }
     }
 }
