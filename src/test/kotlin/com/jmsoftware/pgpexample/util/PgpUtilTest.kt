@@ -1,14 +1,7 @@
 package com.jmsoftware.pgpexample.util
 
 import com.google.common.collect.Lists
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.decryptCipher
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.decryptVerify
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.encryptPlaintext
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.readPublicKey
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.readSecretKey
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.signEncryptInOnePass
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.signMessage
-import com.jmsoftware.pgpexample.util.PgpUtil.Companion.verifySignature
+import com.jmsoftware.pgpexample.util.PgpUtilTest.Companion.log
 import org.apache.commons.io.IOUtils
 import org.apache.commons.lang3.SystemUtils
 import org.bouncycastle.openpgp.PGPPublicKey
@@ -26,6 +19,23 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.util.*
 import kotlin.concurrent.timerTask
 
+fun output(outputFileName: String, outputBytes: ByteArray) {
+    log.info("Current OS is: {}", SystemUtils.OS_NAME)
+    val tmpPath = SystemUtils.getJavaIoTmpDir().absolutePath
+    assertNotNull(tmpPath)
+    log.info("tmpPath: {}", tmpPath)
+    val outputFile = File("$tmpPath$separator$outputFileName")
+    assertNotNull(outputFile)
+    FileOutputStream(outputFile).use {
+        assertDoesNotThrow { IOUtils.write(outputBytes, it) }
+    }
+    log.info("Done writing sign-encrypted data file [{}]", outputFile.absolutePath)
+}
+
+val CLASS_LOADER: ClassLoader = PgpUtilTest::class.java.classLoader
+const val PGP_MESSAGE_HEADER = "-----BEGIN PGP MESSAGE-----"
+val PGP_MESSAGE_FOOTER = "-----END PGP MESSAGE-----${System.lineSeparator()}"
+
 /**
  * # PgpUtilTest
  *
@@ -34,23 +44,7 @@ import kotlin.concurrent.timerTask
 @Execution(ExecutionMode.CONCURRENT)
 class PgpUtilTest {
     companion object {
-        private val log = logger()
-        private val CLASS_LOADER = PgpUtilTest::class.java.classLoader
-        private const val PGP_MESSAGE_HEADER = "-----BEGIN PGP MESSAGE-----"
-        private val PGP_MESSAGE_FOOTER = "-----END PGP MESSAGE-----${System.lineSeparator()}"
-
-        private fun output(outputFileName: String, outputBytes: ByteArray) {
-            log.info("Current OS is: {}", SystemUtils.OS_NAME)
-            val tmpPath = SystemUtils.getJavaIoTmpDir().absolutePath
-            assertNotNull(tmpPath)
-            log.info("tmpPath: {}", tmpPath)
-            val outputFile = File("$tmpPath$separator$outputFileName")
-            assertNotNull(outputFile)
-            FileOutputStream(outputFile).use {
-                assertDoesNotThrow { IOUtils.write(outputBytes, it) }
-            }
-            log.info("Done writing sign-encrypted data file [{}]", outputFile.absolutePath)
-        }
+        internal val log = logger()
     }
 
     @BeforeEach
@@ -186,6 +180,10 @@ class PgpUtilTest {
         assertTrue(signEncryptedText.startsWith(PGP_MESSAGE_HEADER))
         assertTrue(signEncryptedText.endsWith(PGP_MESSAGE_FOOTER))
         log.info("Ciphertext:\n$signEncryptedText")
+        output(
+            "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-enc.txt",
+            signEncryptedOut.toByteArray()
+        )
 
         // 2. Decrypt and verify
         val ciphertextIn = IOUtils.toBufferedInputStream(IOUtils.toInputStream(signEncryptedText, UTF_8))
@@ -246,6 +244,10 @@ class PgpUtilTest {
         assertTrue(signEncryptedText.startsWith(PGP_MESSAGE_HEADER))
         assertTrue(signEncryptedText.endsWith(PGP_MESSAGE_FOOTER))
         log.info("Ciphertext:\n$signEncryptedText")
+        output(
+            "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-enc.txt",
+            signEncryptedOut.toByteArray()
+        )
 
         // 2. Decrypt and verify
         val ciphertextIn = IOUtils.toBufferedInputStream(IOUtils.toInputStream(signEncryptedText, UTF_8))
@@ -284,12 +286,16 @@ class PgpUtilTest {
         assertTrue(signature.startsWith(PGP_MESSAGE_HEADER))
         assertTrue(signature.endsWith(PGP_MESSAGE_FOOTER))
         log.info("Signature:\n$signature")
+        output(
+            "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-enc.txt",
+            signatureBytes
+        )
 
         val alicePgpPublicKey: PGPPublicKey
-            CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_public.asc")!!
-                .use {
-                    alicePgpPublicKey = assertDoesNotThrow { readPublicKey(it) }
-                }
+        CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_public.asc")!!
+            .use {
+                alicePgpPublicKey = assertDoesNotThrow { readPublicKey(it) }
+            }
         val verifiedSignatureBytes = verifySignature(signature.byteInputStream(), alicePgpPublicKey)
         assertNotNull(verifiedSignatureBytes)
         val verifiedSignature = String(verifiedSignatureBytes)
