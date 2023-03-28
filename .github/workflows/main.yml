@@ -19,11 +19,8 @@ env:
   TERMURIN_VERSION: '17.0.5+8'
 
 jobs:
-  build-docker-image:
+  build-artifact:
     runs-on: ubuntu-latest
-    env:
-      DOCKER_HUB_USERNAME: ${{secrets.DOCKER_HUB_USERNAME}}
-      DOCKER_HUB_PASSWORD: ${{secrets.DOCKER_HUB_PASSWORD}}
     steps:
       - uses: actions/checkout@v2
       - name: Setup Java
