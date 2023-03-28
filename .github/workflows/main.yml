@@ -1,0 +1,50 @@
+# This workflow will build a Java project with Gradle
+# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-gradle
+
+name: Java CI with Gradle
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'feature/**'
+    paths-ignore:
+      - '**.md'
+      - '_config.yml'
+  pull_request:
+    branches:
+      - 'main'
+
+env:
+  TERMURIN_VERSION: '17.0.5+8'
+
+jobs:
+  build-docker-image:
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_HUB_USERNAME: ${{secrets.DOCKER_HUB_USERNAME}}
+      DOCKER_HUB_PASSWORD: ${{secrets.DOCKER_HUB_PASSWORD}}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{env.TERMURIN_VERSION}}
+          distribution: 'temurin'
+          cache: 'gradle'
+      - name: Print Machine Hardware Info
+        run: |
+          echo "CPU Info"
+          cat /proc/cpuinfo
+          echo "Memory Info"
+          cat /proc/meminfo
+      - name: Grant Execution Permission for `gradlew`
+        run: chmod +x gradlew
+      - name: Build with Gradle
+        # https://tomgregory.com/gradle-best-practices/#2_Stop_cleaning_your_project
+        run: |
+          ./gradlew build
+      - name: Display Built Artifacts
+        run: |
+          dir
+          ls -R -l -h | grep "\.jar$"
