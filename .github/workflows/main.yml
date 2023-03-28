@@ -35,12 +35,14 @@ jobs:
           cat /proc/cpuinfo
           echo "Memory Info"
           cat /proc/meminfo
+      # https://docs.gradle.org/current/userguide/github-actions.html
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
       - name: Grant Execution Permission for `gradlew`
         run: chmod +x gradlew
       - name: Build with Gradle
         # https://tomgregory.com/gradle-best-practices/#2_Stop_cleaning_your_project
-        run: |
-          ./gradlew build
+        run: ./gradlew build
       - name: Display Built Artifacts
         run: |
           dir
