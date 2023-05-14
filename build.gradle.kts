@@ -1,11 +1,15 @@
+import kotlinx.benchmark.gradle.JvmBenchmarkTarget
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
 import org.gradle.api.tasks.testing.logging.TestLogEvent.*
+import org.jetbrains.kotlin.allopen.gradle.AllOpenExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("org.springframework.boot") version "3.0.5"
+    id("org.springframework.boot") version "3.0.6"
     id("io.spring.dependency-management") version "1.1.0"
+    id("org.jetbrains.kotlinx.benchmark") version "0.4.8"
     kotlin("jvm") version "1.7.22"
+    kotlin("plugin.allopen") version "1.7.22"
     kotlin("plugin.spring") version "1.7.22"
 }
 
@@ -22,6 +26,8 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
+    implementation("org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.8")
+
     // https://mvnrepository.com/artifact/org.bouncycastle/bcpg-jdk18on
     implementation("org.bouncycastle:bcpg-jdk18on:1.72.2")
     // https://mvnrepository.com/artifact/com.google.guava/guava
@@ -30,6 +36,35 @@ dependencies {
     implementation("org.apache.commons:commons-lang3:3.12.0")
     // https://mvnrepository.com/artifact/commons-io/commons-io
     implementation("commons-io:commons-io:2.11.0")
+}
+
+configure<AllOpenExtension> {
+    annotation("org.openjdk.jmh.annotations.State")
+}
+
+benchmark {
+    configurations {
+        named("main") {
+            // number of warmup iterations
+            warmups = 5
+            // number of iterations
+            iterations = 10
+            // time in seconds per iteration
+            iterationTime = 1000
+            // time unit for iterationTime, default is seconds
+            iterationTimeUnit = "ms"
+        }
+    }
+    targets {
+        register("main") {
+            this as JvmBenchmarkTarget
+            jmhVersion = "1.21"
+        }
+        register("test") {
+            this as JvmBenchmarkTarget
+            jmhVersion = "1.21"
+        }
+    }
 }
 
 tasks.withType<KotlinCompile> {

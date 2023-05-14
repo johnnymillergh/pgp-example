@@ -43,6 +43,8 @@ jobs:
       - name: Build with Gradle
         # https://tomgregory.com/gradle-best-practices/#2_Stop_cleaning_your_project
         run: ./gradlew build
+      - name: Benchmark with Kotlinx Benchmark
+        run: ./gradlew benchmark
       - name: Display Built Artifacts
         run: |
           dir
