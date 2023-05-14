@@ -1,5 +1,13 @@
 package com.jmsoftware.pgpexample.util
 
+import org.apache.commons.io.IOUtils
+import org.bouncycastle.openpgp.PGPPublicKey
+import org.bouncycastle.openpgp.PGPSecretKey
+import org.openjdk.jmh.annotations.*
+import java.io.ByteArrayOutputStream
+import java.nio.charset.StandardCharsets
+import java.util.concurrent.TimeUnit
+
 /**
  * # PgpUtilBenchmark
  *
@@ -11,68 +19,92 @@ package com.jmsoftware.pgpexample.util
 @Fork(1)
 @Warmup(iterations = 0)
 @Measurement(iterations = 1, time = 1, timeUnit = TimeUnit.SECONDS)
+@BenchmarkMode(Mode.Throughput)
 class PgpUtilBenchmark {
-    @Test
-    fun aliceSendMessageToBob_signEncrypt_decryptVerify_whenSecretAndPublicKeysAreNotAPair_armor() {
+    companion object {
+        internal val log = logger()
+    }
+
+    @Benchmark
+    fun aliceSendMessageToBob_signEncrypt_whenSecretAndPublicKeysAreNotAPair_armor() {
         val plaintext = "Hello world!"
-        assertNotNull(plaintext)
-        assertFalse(plaintext.isBlank())
-        log.info("The input plaintext is: $plaintext")
+        //log.info("The input plaintext is: $plaintext")
         val bobPgpPublicKey: PGPPublicKey
         CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Bob_0xAF34CAD3_public.asc")!!
             .use {
-                bobPgpPublicKey = assertDoesNotThrow { readPublicKey(it) }
+                bobPgpPublicKey = readPublicKey(it)
             }
         val alicePgpSecretKey: PGPSecretKey
         CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
             .use {
-                alicePgpSecretKey = assertDoesNotThrow { readSecretKey(it) }
+                alicePgpSecretKey = readSecretKey(it)
             }
 
         // 1. Sign and encrypt
         val plaintextIn = IOUtils.toBufferedInputStream(plaintext.byteInputStream())
         val signEncryptedOut = ByteArrayOutputStream()
-        assertDoesNotThrow {
-            signEncryptInOnePass(
-                plaintextIn,
-                signEncryptedOut,
-                "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-enc.txt",
-                "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-plaintext.txt",
-                "",
-                alicePgpSecretKey,
-                bobPgpPublicKey,
-                armor = true,
-                withIntegrityCheck = true
-            )
-        }
-        val signEncryptedText = signEncryptedOut.toString()
-        assertNotNull(signEncryptedText)
-        assertFalse(signEncryptedText.isBlank())
-        assertTrue(signEncryptedText.startsWith(PGP_MESSAGE_HEADER))
-        assertTrue(signEncryptedText.endsWith(PGP_MESSAGE_FOOTER))
-        log.info("Ciphertext:\n$signEncryptedText")
-        output(
+        signEncryptInOnePass(
+            plaintextIn,
+            signEncryptedOut,
             "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-enc.txt",
-            signEncryptedOut.toByteArray()
+            "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-plaintext.txt",
+            "",
+            alicePgpSecretKey,
+            bobPgpPublicKey,
+            armor = true,
+            withIntegrityCheck = true
         )
+    }
+
+    //@Benchmark
+    fun aliceSendMessageToBob_signEncrypt_decryptVerify_whenSecretAndPublicKeysAreNotAPair_armor() {
+        val plaintext = "Hello world!"
+        //log.info("The input plaintext is: $plaintext")
+        val bobPgpPublicKey: PGPPublicKey
+        CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Bob_0xAF34CAD3_public.asc")!!
+            .use {
+                bobPgpPublicKey = readPublicKey(it)
+            }
+        val alicePgpSecretKey: PGPSecretKey
+        CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_SECRET.asc")!!
+            .use {
+                alicePgpSecretKey = readSecretKey(it)
+            }
+
+        // 1. Sign and encrypt
+        val plaintextIn = IOUtils.toBufferedInputStream(plaintext.byteInputStream())
+        val signEncryptedOut = ByteArrayOutputStream()
+        signEncryptInOnePass(
+            plaintextIn,
+            signEncryptedOut,
+            "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-enc.txt",
+            "${this.javaClass.simpleName}-${Thread.currentThread().stackTrace[1].methodName}-plaintext.txt",
+            "",
+            alicePgpSecretKey,
+            bobPgpPublicKey,
+            armor = true,
+            withIntegrityCheck = true
+        )
+        val signEncryptedText = signEncryptedOut.toString()
+        //log.info("Ciphertext:\n$signEncryptedText")
 
         // 2. Decrypt and verify
-        val ciphertextIn = IOUtils.toBufferedInputStream(IOUtils.toInputStream(signEncryptedText, UTF_8))
+        val ciphertextIn = IOUtils.toBufferedInputStream(
+            IOUtils.toInputStream(
+                signEncryptedText,
+                StandardCharsets.UTF_8
+            )
+        )
         val alicePgpPublicKeyIn =
             CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Alice_0x3A9AA381_public.asc")!!
         val bobPgpSecretKeyIn =
             CLASS_LOADER.getResourceAsStream("pgp-keys/Johnny Miller's PGP Example - Bob_0xAF34CAD3_SECRET.asc")!!
         val decryptVerifiedOut = ByteArrayOutputStream()
-        assertDoesNotThrow {
-            decryptVerify(ciphertextIn, alicePgpPublicKeyIn, bobPgpSecretKeyIn, "", decryptVerifiedOut)
-        }.also {
+        decryptVerify(ciphertextIn, alicePgpPublicKeyIn, bobPgpSecretKeyIn, "", decryptVerifiedOut).also {
             alicePgpPublicKeyIn.close()
             bobPgpSecretKeyIn.close()
         }
         val decryptVerifiedText = decryptVerifiedOut.toString()
-        assertNotNull(decryptVerifiedText)
-        assertFalse(decryptVerifiedText.isBlank())
-        assertEquals(plaintext, decryptVerifiedText)
-        log.info("Decrypt verified: $decryptVerifiedText")
+        //log.info("Decrypt verified: $decryptVerifiedText")
     }
 }
