@@ -5,12 +5,12 @@ import org.jetbrains.kotlin.allopen.gradle.AllOpenExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("org.springframework.boot") version "3.0.6"
+    id("org.springframework.boot") version "3.1.0"
     id("io.spring.dependency-management") version "1.1.0"
     id("org.jetbrains.kotlinx.benchmark") version "0.4.8"
-    kotlin("jvm") version "1.7.22"
-    kotlin("plugin.allopen") version "1.7.22"
-    kotlin("plugin.spring") version "1.7.22"
+    kotlin("jvm") version "1.8.21"
+    kotlin("plugin.allopen") version "1.8.21"
+    kotlin("plugin.spring") version "1.8.21"
 }
 
 group = "com.jmsoftware"
@@ -29,13 +29,13 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.8")
 
     // https://mvnrepository.com/artifact/org.bouncycastle/bcpg-jdk18on
-    implementation("org.bouncycastle:bcpg-jdk18on:1.72.2")
+    implementation("org.bouncycastle:bcpg-jdk18on:1.73")
     // https://mvnrepository.com/artifact/com.google.guava/guava
     implementation("com.google.guava:guava:31.1-jre")
     // https://mvnrepository.com/artifact/org.apache.commons/commons-lang3
     implementation("org.apache.commons:commons-lang3:3.12.0")
     // https://mvnrepository.com/artifact/commons-io/commons-io
-    implementation("commons-io:commons-io:2.11.0")
+    implementation("commons-io:commons-io:2.12.0")
 }
 
 configure<AllOpenExtension> {
